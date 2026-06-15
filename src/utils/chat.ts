@@ -45,7 +45,10 @@ export const buildMessage = (
   // Add new user messages if provided
   if (message) {
     const newMessages = message.map((v) => ({ ...v, id: randomUUID() }));
-    msg.push(...newMessages);
+    
+    // Kita tidak push newMessages ke msg di sini, 
+    // karena kita ingin urutannya: system -> db -> history -> user message
+    // Jadi kita simpan dulu untuk di-append nanti di return
 
     const insertMsg = db.prepare(`
       INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at)
@@ -89,11 +92,12 @@ export const buildMessage = (
   return {
     id,
     messages: [
-      ...(history || []),
       ...msg.map((v) => {
         const { id: _id, ...rest } = v;
         return rest;
       }),
+      ...(history || []),
+      ...(message || []),
     ] as OpenAI.Chat.ChatCompletionMessageParam[],
     saveMessage: (newMessage: MessageWithId) => {
       const insertMsg = db.prepare(`
