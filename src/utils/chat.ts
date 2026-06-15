@@ -1,51 +1,115 @@
 import type OpenAI from "openai";
-import fs from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
-import { cache } from "./utils";
+import db from "./db";
 
-// eslint-disable-next-line import/prefer-default-export
 type MessageWithId = OpenAI.Chat.ChatCompletionMessageParam & { id: string };
-// eslint-disable-next-line import/prefer-default-export
+
 export const buildMessage = (
-  id: string,
+  id: string, // id ini sekarang tidak dipakai untuk DB, tapi tetap di-return untuk kompatibilitas
   message: OpenAI.Chat.ChatCompletionMessageParam[] | null,
-  { msgId, systemMessage }: { msgId?: string; systemMessage?: string } = {},
+  {
+    msgId,
+    systemMessage,
+    history,
+    userId = "default_user",
+  }: {
+    msgId?: string;
+    systemMessage?: string;
+    history?: OpenAI.Chat.ChatCompletionMessageParam[];
+    userId?: string;
+  } = {},
 ) => {
-  let msg: MessageWithId[] = [];
+  // Fetch existing messages for this user
+  const getMessages = db.prepare(
+    "SELECT * FROM messages WHERE user_id = ? ORDER BY created_at ASC"
+  );
+  const rows = getMessages.all(userId) as any[];
 
-  const folderName = "messages";
-  const fileName = path.join(folderName, `${id}.json`);
-  if (!fs.existsSync(folderName)) fs.mkdirSync(folderName);
+  let msg: MessageWithId[] = rows.map((row) => {
+    const baseMsg: any = {
+      id: row.id,
+      role: row.role,
+      content: row.content,
+    };
+    if (row.tool_calls) baseMsg.tool_calls = JSON.parse(row.tool_calls);
+    if (row.function_call) baseMsg.function_call = JSON.parse(row.function_call);
+    if (row.name) baseMsg.name = row.name;
+    return baseMsg;
+  });
 
-  if (!cache.has(id)) {
-    if (fs.existsSync(fileName))
-      msg = JSON.parse(fs.readFileSync(fileName, "utf-8"));
-    msg.push({ content: systemMessage!, role: "system", id: "system" });
-    cache.set(id, msg);
+  // Always prepend system message
+  if (systemMessage) {
+    msg.unshift({ content: systemMessage, role: "system", id: "system" });
   }
 
-  msg = cache.get<MessageWithId[]>(id)!;
-
+  // Add new user messages if provided
   if (message) {
-    msg.push(...message.map((v) => ({ ...v, id: randomUUID() })));
+    const newMessages = message.map((v) => ({ ...v, id: randomUUID() }));
+    msg.push(...newMessages);
 
-    fs.writeFileSync(fileName, JSON.stringify(msg, null, 2), "utf-8");
+    const insertMsg = db.prepare(`
+      INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
 
+    const insertMany = db.transaction((msgs: MessageWithId[]) => {
+      for (const m of msgs) {
+        insertMsg.run(
+          m.id,
+          userId,
+          m.role,
+          m.content || null,
+          (m as any).tool_calls ? JSON.stringify((m as any).tool_calls) : null,
+          (m as any).function_call ? JSON.stringify((m as any).function_call) : null,
+          (m as any).name || null,
+          Date.now()
+        );
+      }
+    });
+
+    insertMany(newMessages);
+
+    // Handle truncation if msgId is provided
     if (msgId) {
       const index = msg.findIndex((v) => v.id === msgId);
-      if (index) {
-        msg = msg.slice(1, index + 1);
+      if (index !== -1) {
+        msg = msg.slice(0, index + 1);
+        // Delete messages after msgId from DB
+        const deleteAfter = db.prepare(`
+          DELETE FROM messages 
+          WHERE user_id = ? AND created_at > (
+            SELECT created_at FROM messages WHERE id = ?
+          )
+        `);
+        deleteAfter.run(userId, msgId);
       }
     }
   }
 
   return {
     id,
-    messages: msg.map((v) => ({ ...v, id: undefined })),
+    messages: [
+      ...(history || []),
+      ...msg.map((v) => {
+        const { id: _id, ...rest } = v;
+        return rest;
+      }),
+    ] as OpenAI.Chat.ChatCompletionMessageParam[],
     saveMessage: (newMessage: MessageWithId) => {
-      msg?.push(newMessage);
-      fs.writeFileSync(fileName, JSON.stringify(msg, null, 2), "utf-8");
+      const insertMsg = db.prepare(`
+        INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertMsg.run(
+        newMessage.id || randomUUID(),
+        userId,
+        newMessage.role,
+        newMessage.content || null,
+        (newMessage as any).tool_calls ? JSON.stringify((newMessage as any).tool_calls) : null,
+        (newMessage as any).function_call ? JSON.stringify((newMessage as any).function_call) : null,
+        (newMessage as any).name || null,
+        Date.now()
+      );
     },
   };
 };

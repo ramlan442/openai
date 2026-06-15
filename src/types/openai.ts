@@ -7,8 +7,15 @@ export interface OpenAIType {
       headers?: any;
       model?: OpenAI.Chat.ChatCompletionCreateParams["model"];
       endpoint?: string;
-      tools?: Array<OpenAI.ChatCompletionTool>;
+      tools?: Array<FunctionOpenAI>;
+      functions?: Array<FunctionOpenAI>;
+      images?: string[];
       onMessage?: (data: any) => void;
+      onFunctionCall?: (
+        arg: string,
+        fn: FunctionOpenAI,
+        save: (content: string) => Promise<any>,
+      ) => Promise<any>;
     },
   ) => Promise<ChatResponse>;
 }
@@ -28,9 +35,11 @@ export interface FunctionOpenAI {
       };
       required: string[];
     };
-    path: string;
+    path?: string;
+    task?: (args: any) => Promise<any>;
   };
   type: "function";
+  response?: string;
 }
 
 export type ChatResponse = OpenAI.ChatCompletion & {
