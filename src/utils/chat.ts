@@ -70,7 +70,7 @@ export const buildMessage = (
           m.id,
           userId,
           m.role,
-          m.content || null,
+          m.content ? (typeof m.content === "string" ? m.content : JSON.stringify(m.content)) : null,
           (m as any).tool_calls ? JSON.stringify((m as any).tool_calls) : null,
           (m as any).function_call ? JSON.stringify((m as any).function_call) : null,
           (m as any).name || null,

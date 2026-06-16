@@ -210,7 +210,7 @@ class OpenAi {
   ) {
     const endpoint = baseUrl || `${this.BASE_URL}/v1/audio/transcriptions`;
 
-    const blob = new Blob([file], { type: "audio/mpeg" });
+    const blob = new Blob([new Uint8Array(file)], { type: "audio/mpeg" });
     const formData = new FormData();
     formData.append("file", blob, "audio.mp3");
     formData.append("model", model || "whisper-1");
