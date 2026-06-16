@@ -26,10 +26,19 @@ export const buildMessage = (
   const rows = getMessages.all(userId) as any[];
 
   let msg: MessageWithId[] = rows.map((row) => {
+    let parsedContent = row.content;
+    if (typeof row.content === "string" && (row.content.startsWith("[") || row.content.startsWith("{"))) {
+      try {
+        parsedContent = JSON.parse(row.content);
+      } catch (e) {
+        // ignore
+      }
+    }
+
     const baseMsg: any = {
       id: row.id,
       role: row.role,
-      content: row.content,
+      content: parsedContent,
     };
     if (row.tool_calls) baseMsg.tool_calls = JSON.parse(row.tool_calls);
     if (row.function_call) baseMsg.function_call = JSON.parse(row.function_call);
@@ -108,7 +117,7 @@ export const buildMessage = (
         newMessage.id || randomUUID(),
         userId,
         newMessage.role,
-        newMessage.content || null,
+        newMessage.content ? (typeof newMessage.content === "string" ? newMessage.content : JSON.stringify(newMessage.content)) : null,
         (newMessage as any).tool_calls ? JSON.stringify((newMessage as any).tool_calls) : null,
         (newMessage as any).function_call ? JSON.stringify((newMessage as any).function_call) : null,
         (newMessage as any).name || null,

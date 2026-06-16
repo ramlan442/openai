@@ -56,7 +56,7 @@ class OpenAi {
             { type: "text", text },
             ...images.map((image) => ({
               type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${image}` },
+              image_url: { url: image },
             })),
           ] as any)
         : text,
