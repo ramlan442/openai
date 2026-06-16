@@ -83,7 +83,10 @@ export class MemoryManager {
         peerTarget: userId,
         representationOptions: {
           searchQuery: query,
-          searchTopK: topK
+          searchTopK: topK,
+          includeMostFrequent: true,
+          maxConclusions: 10,
+          searchMaxDistance: 0.5,
         }
       });
       const openaiMessages = context.toOpenAI(assistant);
