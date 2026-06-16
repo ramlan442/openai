@@ -61,6 +61,10 @@ export class MemoryManager {
 
       if (messages.length > 0) {
         await session.addMessages(messages);
+        // Add a small delay between chunks to prevent rate limiting
+        if (i + chunkSize < allMessages.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
     }
     console.log(`[Honcho] Backfill completed for user ${userId}`);
