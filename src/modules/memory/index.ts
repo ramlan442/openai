@@ -79,7 +79,7 @@ export class MemoryManager {
       // We also use semantic search to find conclusions relevant to the user's query
       const context = await session.context({ 
         summary: true, 
-        tokens: 2000,
+        tokens: 1000,
         peerTarget: userId,
         representationOptions: {
           searchQuery: query,
