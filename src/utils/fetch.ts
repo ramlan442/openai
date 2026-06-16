@@ -45,9 +45,11 @@ export async function fetchSSE(
     throw error;
   }
 
-  const parser = createParser((event) => {
-    if (event.type === "event") {
-      onMessage(event.data);
+  const parser = createParser({
+    onEvent(event: any) {
+      if (event.type === "event") {
+        onMessage(event.data);
+      }
     }
   });
 

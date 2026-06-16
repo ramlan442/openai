@@ -20,11 +20,19 @@ db.exec(`
     tool_calls TEXT,
     function_call TEXT,
     name TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    honcho_synced INTEGER DEFAULT 0
   );
 
   CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
   CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 `);
+
+// Migration for existing databases
+try {
+  db.exec(`ALTER TABLE messages ADD COLUMN honcho_synced INTEGER DEFAULT 0;`);
+} catch (e) {
+  // Ignore if column already exists
+}
 
 export default db;

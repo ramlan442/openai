@@ -4,26 +4,65 @@ import db from "./db";
 
 type MessageWithId = OpenAI.Chat.ChatCompletionMessageParam & { id: string };
 
-export const buildMessage = (
+export const buildMessage = async (
   id: string, // id ini sekarang tidak dipakai untuk DB, tapi tetap di-return untuk kompatibilitas
   message: OpenAI.Chat.ChatCompletionMessageParam[] | null,
   {
     msgId,
     systemMessage,
+    fetchRelevantContext,
+    triggerBackfill,
     history,
     userId = "default_user",
+    maxHistory = 10,
   }: {
     msgId?: string;
     systemMessage?: string;
+    fetchRelevantContext?: () => Promise<string>;
+    triggerBackfill?: (allMessages: any[]) => Promise<void>;
     history?: OpenAI.Chat.ChatCompletionMessageParam[];
     userId?: string;
+    maxHistory?: number;
   } = {},
 ) => {
-  // Fetch existing messages for this user
+  // 1. Handle truncation FIRST if msgId is provided
+  if (msgId) {
+    const deleteAfter = db.prepare(`
+      DELETE FROM messages 
+      WHERE user_id = ? AND created_at > (
+        SELECT created_at FROM messages WHERE id = ?
+      )
+    `);
+    deleteAfter.run(userId, msgId);
+  }
+
+  // 2. Get total count of messages for this user
+  const countRow = db.prepare("SELECT COUNT(*) as count FROM messages WHERE user_id = ?").get(userId) as { count: number };
+  const totalMessages = countRow.count;
+
+  // 3. Fetch limited messages (last N messages)
   const getMessages = db.prepare(
-    "SELECT * FROM messages WHERE user_id = ? ORDER BY created_at ASC"
+    "SELECT * FROM (SELECT * FROM messages WHERE user_id = ? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC"
   );
-  const rows = getMessages.all(userId) as any[];
+  const rows = getMessages.all(userId, maxHistory) as any[];
+
+  // 3.5 Backfill to Honcho if needed (Triggered when totalMessages > maxHistory)
+  let allRowsForBackfill: any[] = [];
+
+  if (totalMessages > maxHistory && fetchRelevantContext) {
+    const getUnsynced = db.prepare("SELECT * FROM messages WHERE user_id = ? AND honcho_synced = 0 ORDER BY created_at ASC");
+    allRowsForBackfill = getUnsynced.all(userId) as any[];
+    
+    if (allRowsForBackfill.length > maxHistory) {
+      console.log(`[Honcho] Found ${allRowsForBackfill.length} unsynced messages for user ${userId}. Marking as synced...`);
+      // Mark as synced immediately to prevent concurrent backfills
+      const markSynced = db.prepare("UPDATE messages SET honcho_synced = 1 WHERE id = ?");
+      const markMany = db.transaction((rows: any[]) => {
+        for (const row of rows) markSynced.run(row.id);
+      });
+      markMany(allRowsForBackfill);
+    }
+  }
 
   let msg: MessageWithId[] = rows.map((row) => {
     let parsedContent = row.content;
@@ -46,22 +85,13 @@ export const buildMessage = (
     return baseMsg;
   });
 
-  // Always prepend system message
-  if (systemMessage) {
-    msg.unshift({ content: systemMessage, role: "system", id: "system" });
-  }
-
-  // Add new user messages if provided
+  // 4. Insert new user messages to DB if provided
   if (message) {
     const newMessages = message.map((v) => ({ ...v, id: randomUUID() }));
     
-    // Kita tidak push newMessages ke msg di sini, 
-    // karena kita ingin urutannya: system -> db -> history -> user message
-    // Jadi kita simpan dulu untuk di-append nanti di return
-
     const insertMsg = db.prepare(`
-      INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at, honcho_synced)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     const insertMany = db.transaction((msgs: MessageWithId[]) => {
@@ -80,38 +110,67 @@ export const buildMessage = (
     });
 
     insertMany(newMessages);
+  }
 
-    // Handle truncation if msgId is provided
-    if (msgId) {
-      const index = msg.findIndex((v) => v.id === msgId);
-      if (index !== -1) {
-        msg = msg.slice(0, index + 1);
-        // Delete messages after msgId from DB
-        const deleteAfter = db.prepare(`
-          DELETE FROM messages 
-          WHERE user_id = ? AND created_at > (
-            SELECT created_at FROM messages WHERE id = ?
-          )
-        `);
-        deleteAfter.run(userId, msgId);
-      }
+  // 5. Compose final messages array
+  const finalMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+
+  // - System message
+  if (systemMessage) {
+    finalMessages.push({ role: "system", content: systemMessage });
+  }
+
+  // - History (from DB, limited to maxHistory)
+  finalMessages.push(...msg.map((v) => {
+    const { id: _id, ...rest } = v;
+    return rest;
+  }));
+
+  // - History (from args)
+  if (history) {
+    finalMessages.push(...history);
+  }
+
+  // - Relevant context (Honcho) - ONLY if total messages > maxHistory
+  if (totalMessages > maxHistory && fetchRelevantContext) {
+    // Trigger backfill if provided and needed
+    if (triggerBackfill && allRowsForBackfill.length > maxHistory) {
+      console.log(`[Honcho] Triggering background backfill for ${allRowsForBackfill.length} messages...`);
+      // We don't await this so it runs in the background
+      triggerBackfill(allRowsForBackfill).catch(err => {
+        console.error("[Honcho] Backfill failed:", err);
+        console.log(`[Honcho] Reverting sync status for ${allRowsForBackfill.length} messages...`);
+        // Revert the backfill status if it failed so we can try again later
+        const markUnsynced = db.prepare("UPDATE messages SET honcho_synced = 0 WHERE id = ?");
+        const revertMany = db.transaction((rows: any[]) => {
+          for (const row of rows) markUnsynced.run(row.id);
+        });
+        revertMany(allRowsForBackfill);
+      });
     }
+
+    console.log(`[Honcho] Fetching relevant context for user ${userId}...`);
+    const relevantContext = await fetchRelevantContext();
+    if (relevantContext) {
+      console.log(`[Honcho] Context received:`, relevantContext);
+      finalMessages.push({ role: "system", content: relevantContext });
+    } else {
+      console.log(`[Honcho] No relevant context found.`);
+    }
+  }
+
+  // - User message
+  if (message) {
+    finalMessages.push(...message);
   }
 
   return {
     id,
-    messages: [
-      ...msg.map((v) => {
-        const { id: _id, ...rest } = v;
-        return rest;
-      }),
-      ...(history || []),
-      ...(message || []),
-    ] as OpenAI.Chat.ChatCompletionMessageParam[],
+    messages: finalMessages,
     saveMessage: (newMessage: MessageWithId) => {
       const insertMsg = db.prepare(`
-        INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at, honcho_synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
       `);
       insertMsg.run(
         newMessage.id || randomUUID(),

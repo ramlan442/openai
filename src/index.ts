@@ -31,20 +31,16 @@ class OpenAi {
     key,
     systemMessage,
     enableMemory = false,
-    memoryDbPath,
   }: { 
     key?: string; 
     systemMessage?: string;
     enableMemory?: boolean;
-    memoryDbPath?: string;
   } = {}) {
     if (key) this.DEFAULT_HEADERS.authorization = `Bearer ${key}`;
     if (systemMessage) this.SYSTEM_MESSAGE = systemMessage;
     
     if (enableMemory) {
-      // We need to pass an OpenAI instance to the memory manager for embeddings/extraction
-      const openaiInstance = new OpenAI({ apiKey: key || process.env.OPENAI_API_KEY });
-      this.memoryManager = new MemoryManager(openaiInstance, memoryDbPath);
+      this.memoryManager = new MemoryManager();
     }
   }
 
@@ -108,18 +104,23 @@ class OpenAi {
     // Inject relevant memory context if memory manager is initialized
     let systemMsg = this.SYSTEM_MESSAGE;
     const effectiveUserId = userId || "default_user";
-    
-    if (this.memoryManager && text) {
-      const context = await this.memoryManager.getRelevantContext(effectiveUserId, text);
-      if (context) {
-        systemMsg += context;
-      }
-    }
 
-    const { messages, saveMessage, id } = buildMessage(
+    const { messages, saveMessage, id } = await buildMessage(
       parentMessageId || randomUUID(),
       userMessage,
-      { systemMessage: systemMsg, msgId: chatMessageId, history, userId: effectiveUserId },
+      { 
+        systemMessage: systemMsg, 
+        fetchRelevantContext: (this.memoryManager && text) 
+          ? () => this.memoryManager!.getRelevantContext(effectiveUserId, text)
+          : undefined,
+        triggerBackfill: this.memoryManager 
+          ? (allMessages) => this.memoryManager!.backfillHistory(effectiveUserId, allMessages)
+          : undefined,
+        msgId: chatMessageId, 
+        history, 
+        userId: effectiveUserId,
+        maxHistory: 10 // Batas N pesan history
+      },
     );
 
     // 2. Build request body
@@ -131,7 +132,7 @@ class OpenAi {
       stream: useStream,
     });
 
-    console.log(JSON.stringify(body,null, 2))
+    // console.log(JSON.stringify(body,null, 2))
 
     // 3. Send request
     const requestHeaders = headers || this.DEFAULT_HEADERS;
@@ -148,7 +149,6 @@ class OpenAi {
           JSON.stringify(body),
           requestHeaders,
         );
-
     // 4. Extract response
     // eslint-disable-next-line @typescript-eslint/naming-convention
     const { content, role, tool_calls, function_call } =
@@ -156,7 +156,6 @@ class OpenAi {
       chatMessageResponse.choices[0].message;
     chatMessageResponse.id = id;
     chatMessageResponse.text = content;
-    console.log(chatMessageResponse.choices[0].message)
 
     saveMessage({ id: randomUUID(), role, content, tool_calls });
 
