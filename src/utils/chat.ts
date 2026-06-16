@@ -18,7 +18,7 @@ export const buildMessage = async (
   }: {
     msgId?: string;
     systemMessage?: string;
-    fetchRelevantContext?: () => Promise<string>;
+    fetchRelevantContext?: () => Promise<any[]>;
     triggerBackfill?: (allMessages: any[]) => Promise<void>;
     history?: OpenAI.Chat.ChatCompletionMessageParam[];
     userId?: string;
@@ -120,17 +120,6 @@ export const buildMessage = async (
     finalMessages.push({ role: "system", content: systemMessage });
   }
 
-  // - History (from DB, limited to maxHistory)
-  finalMessages.push(...msg.map((v) => {
-    const { id: _id, ...rest } = v;
-    return rest;
-  }));
-
-  // - History (from args)
-  if (history) {
-    finalMessages.push(...history);
-  }
-
   // - Relevant context (Honcho) - ONLY if total messages > maxHistory
   if (totalMessages > maxHistory && fetchRelevantContext) {
     // Trigger backfill if provided and needed
@@ -150,13 +139,48 @@ export const buildMessage = async (
     }
 
     console.log(`[Honcho] Fetching relevant context for user ${userId}...`);
-    const relevantContext = await fetchRelevantContext();
-    if (relevantContext) {
-      console.log(`[Honcho] Context received:`, relevantContext);
-      finalMessages.push({ role: "system", content: relevantContext });
+    const honchoMessages = await fetchRelevantContext();
+    if (honchoMessages && honchoMessages.length > maxHistory) {
+      console.log(`[Honcho] Received ${honchoMessages.length} messages from context`);
+      
+      // We want to use Honcho's summary/context, BUT we also want the most recent messages
+      // to be exactly as they are in our local DB to maintain perfect recent context.
+      // So we'll take Honcho's messages, but replace the end of it with our local recent history.
+      
+      // 1. Add Honcho's messages (which might include summaries of old messages)
+      // We filter out the most recent ones that overlap with our local DB history
+      // to avoid duplication.
+      const localHistoryCount = msg.length;
+      const honchoMessagesToKeep = honchoMessages.length > localHistoryCount 
+        ? honchoMessages.slice(0, honchoMessages.length - localHistoryCount)
+        : honchoMessages;
+        
+      finalMessages.push(...honchoMessagesToKeep);
+      
+      // 2. Add the exact recent history from our local DB
+      finalMessages.push(...msg.map((v) => {
+        const { id: _id, ...rest } = v;
+        return rest;
+      }));
+      
     } else {
-      console.log(`[Honcho] No relevant context found.`);
+      console.log(`[Honcho] No relevant context found. Falling back to local history.`);
+      finalMessages.push(...msg.map((v) => {
+        const { id: _id, ...rest } = v;
+        return rest;
+      }));
     }
+  } else {
+    // If we don't use Honcho, fallback to DB history
+    finalMessages.push(...msg.map((v) => {
+      const { id: _id, ...rest } = v;
+      return rest;
+    }));
+  }
+
+  // - History (from args)
+  if (history) {
+    finalMessages.push(...history);
   }
 
   // - User message

@@ -66,19 +66,28 @@ export class MemoryManager {
     console.log(`[Honcho] Backfill completed for user ${userId}`);
   }
 
-  async getRelevantContext(userId: string, query: string, topK: number = 6): Promise<string> {
-    const user = await this.honcho.peer(userId);
+  async getRelevantContext(userId: string, query: string, topK: number = 6): Promise<any[]> {
+    const session = await this.honcho.session(`session_${userId}`);
+    const assistant = await this.honcho.peer("assistant");
     
     try {
-      // Query Honcho for insights about the user based on the current query
-      const response = await user.chat(`What should I know about this user based on their history? Focus on facts relevant to: "${query}". ${topK} sentences max.`);
+      // Get context from Honcho with summary enabled for long conversations
+      // We also use semantic search to find conclusions relevant to the user's query
+      const context = await session.context({ 
+        summary: true, 
+        tokens: 2000,
+        peerTarget: userId,
+        representationOptions: {
+          searchQuery: query,
+          searchTopK: topK
+        }
+      });
+      const openaiMessages = context.toOpenAI(assistant);
       
-      if (!response) return "";
-
-      return `\n[Relevant Past Memories]\n${response}\n`;
+      return openaiMessages;
     } catch (error) {
       console.error("Failed to get context from Honcho:", error);
-      return "";
+      return [];
     }
   }
 }
