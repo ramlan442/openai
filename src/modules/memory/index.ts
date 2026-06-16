@@ -70,7 +70,7 @@ export class MemoryManager {
     console.log(`[Honcho] Backfill completed for user ${userId}`);
   }
 
-  async getRelevantContext(userId: string, query: string, topK: number = 6): Promise<any[]> {
+  async getRelevantContext(userId: string, query: string, topK: number = 3): Promise<any[]> {
     const session = await this.honcho.session(`session_${userId}`);
     const assistant = await this.honcho.peer("assistant");
     
