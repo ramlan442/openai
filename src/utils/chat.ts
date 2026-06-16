@@ -140,7 +140,7 @@ export const buildMessage = async (
 
     console.log(`[Honcho] Fetching relevant context for user ${userId}...`);
     const honchoMessages = await fetchRelevantContext();
-    if (honchoMessages && honchoMessages.length > maxHistory) {
+    if (honchoMessages && honchoMessages.length > 0) {
       console.log(`[Honcho] Received ${honchoMessages.length} messages from context`);
       
       // We want to use Honcho's summary/context, BUT we also want the most recent messages

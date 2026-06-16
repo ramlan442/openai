@@ -182,13 +182,13 @@ class OpenAi {
     }
 
     // 7. Process memory in background (if enabled)
-    if (this.memoryManager && text) {
-      // We don't await this to avoid blocking the response
-      this.memoryManager.processChatHistory(effectiveUserId, [
-        { role: "user", content: text },
-        { role: "assistant", content: content || "" }
-      ]).catch(err => console.error("Memory processing failed:", err));
-    }
+    // if (this.memoryManager && text) {
+    //   // We don't await this to avoid blocking the response
+    //   this.memoryManager.processChatHistory(effectiveUserId, [
+    //     { role: "user", content: text },
+    //     { role: "assistant", content: content || "" }
+    //   ]).catch(err => console.error("Memory processing failed:", err));
+    // }
 
     return chatMessageResponse;
   }
