@@ -27,7 +27,7 @@ export const buildMessage = (
 
   let msg: MessageWithId[] = rows.map((row) => {
     let parsedContent = row.content;
-    if (typeof row.content === "string" && (row.content.startsWith("[") || row.content.startsWith("{"))) {
+    if (typeof row.content === "string" && row.content.startsWith("[") && row.role === "user") {
       try {
         parsedContent = JSON.parse(row.content);
       } catch (e) {
