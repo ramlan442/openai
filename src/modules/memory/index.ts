@@ -71,10 +71,9 @@ export class MemoryManager {
   }
 
   async getRelevantContext(userId: string, query: string, topK: number = 3): Promise<any[]> {
-    const session = await this.honcho.session(`session_${userId}`);
-    const assistant = await this.honcho.peer("assistant");
-    
     try {
+      const session = await this.honcho.session(`session_${userId}`);
+      const assistant = await this.honcho.peer("assistant");
       // Get context from Honcho with summary enabled for long conversations
       // We also use semantic search to find conclusions relevant to the user's query
       const context = await session.context({ 
