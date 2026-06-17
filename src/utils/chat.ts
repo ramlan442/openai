@@ -155,7 +155,7 @@ export const buildMessage = async (
         ? honchoMessages.slice(0, honchoMessages.length - localHistoryCount)
         : honchoMessages;
         
-      finalMessages.push(...honchoMessages);
+      finalMessages.push(...honchoMessagesToKeep);
       
       // 2. Add the exact recent history from our local DB
       finalMessages.push(...msg.map((v) => {

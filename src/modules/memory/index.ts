@@ -79,14 +79,14 @@ export class MemoryManager {
       // We also use semantic search to find conclusions relevant to the user's query
       const context = await session.context({ 
         summary: true, 
-        tokens: 1000,
+        tokens: 2000,
         peerTarget: userId,
         representationOptions: {
           searchQuery: query,
           searchTopK: topK,
           includeMostFrequent: true,
           maxConclusions: 10,
-          searchMaxDistance: 0.5,
+          searchMaxDistance: 0.6,
         }
       });
       const openaiMessages = context.toOpenAI(assistant);
