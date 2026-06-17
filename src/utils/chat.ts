@@ -80,6 +80,7 @@ export const buildMessage = async (
       content: parsedContent,
     };
     if (row.tool_calls) baseMsg.tool_calls = JSON.parse(row.tool_calls);
+    if (row.tool_call_id) baseMsg.tool_call_id = row.tool_call_id;
     if (row.function_call) baseMsg.function_call = JSON.parse(row.function_call);
     if (row.name) baseMsg.name = row.name;
     return baseMsg;
@@ -90,8 +91,8 @@ export const buildMessage = async (
     const newMessages = message.map((v) => ({ ...v, id: randomUUID() }));
     
     const insertMsg = db.prepare(`
-      INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at, honcho_synced)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+      INSERT INTO messages (id, user_id, role, content, tool_calls, tool_call_id, function_call, name, created_at, honcho_synced)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     const insertMany = db.transaction((msgs: MessageWithId[]) => {
@@ -102,6 +103,7 @@ export const buildMessage = async (
           m.role,
           m.content ? (typeof m.content === "string" ? m.content : JSON.stringify(m.content)) : null,
           (m as any).tool_calls ? JSON.stringify((m as any).tool_calls) : null,
+          (m as any).tool_call_id || null,
           (m as any).function_call ? JSON.stringify((m as any).function_call) : null,
           (m as any).name || null,
           Date.now()
@@ -155,7 +157,16 @@ export const buildMessage = async (
         ? honchoMessages.slice(0, honchoMessages.length - localHistoryCount)
         : honchoMessages;
         
-      finalMessages.push(...honchoMessagesToKeep);
+      finalMessages.push(...honchoMessagesToKeep.map((row) => {
+        if (typeof row.content === "string" && row.content.startsWith("[") && row.role === "user"){
+          try {
+            row.content = JSON.parse(row.content);
+          } catch (e) {
+            // ignore
+          }
+        }
+        return row;
+      }));
       
       // 2. Add the exact recent history from our local DB
       finalMessages.push(...msg.map((v) => {
@@ -193,8 +204,8 @@ export const buildMessage = async (
     messages: finalMessages,
     saveMessage: (newMessage: MessageWithId) => {
       const insertMsg = db.prepare(`
-        INSERT INTO messages (id, user_id, role, content, tool_calls, function_call, name, created_at, honcho_synced)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        INSERT INTO messages (id, user_id, role, content, tool_calls, tool_call_id, function_call, name, created_at, honcho_synced)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       `);
       insertMsg.run(
         newMessage.id || randomUUID(),
@@ -202,6 +213,7 @@ export const buildMessage = async (
         newMessage.role,
         newMessage.content ? (typeof newMessage.content === "string" ? newMessage.content : JSON.stringify(newMessage.content)) : null,
         (newMessage as any).tool_calls ? JSON.stringify((newMessage as any).tool_calls) : null,
+        (newMessage as any).tool_call_id || null,
         (newMessage as any).function_call ? JSON.stringify((newMessage as any).function_call) : null,
         (newMessage as any).name || null,
         Date.now()

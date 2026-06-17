@@ -18,6 +18,7 @@ db.exec(`
     role TEXT NOT NULL,
     content TEXT,
     tool_calls TEXT,
+    tool_call_id TEXT,
     function_call TEXT,
     name TEXT,
     created_at INTEGER NOT NULL,
@@ -31,6 +32,12 @@ db.exec(`
 // Migration for existing databases
 try {
   db.exec(`ALTER TABLE messages ADD COLUMN honcho_synced INTEGER DEFAULT 0;`);
+} catch (e) {
+  // Ignore if column already exists
+}
+
+try {
+  db.exec(`ALTER TABLE messages ADD COLUMN tool_call_id TEXT;`);
 } catch (e) {
   // Ignore if column already exists
 }
