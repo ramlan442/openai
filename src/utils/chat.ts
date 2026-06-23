@@ -74,6 +74,8 @@ export const buildMessage = async (
       }
     }
 
+    if(!parsedContent) parsedContent = '';
+
     const baseMsg: any = {
       id: row.id,
       role: row.role,
@@ -101,7 +103,7 @@ export const buildMessage = async (
           m.id,
           userId,
           m.role,
-          m.content ? (typeof m.content === "string" ? m.content : JSON.stringify(m.content)) : null,
+          m.content ? (typeof m.content === "string" ? m.content : JSON.stringify(m.content)) : '',
           (m as any).tool_calls ? JSON.stringify((m as any).tool_calls) : null,
           (m as any).tool_call_id || null,
           (m as any).function_call ? JSON.stringify((m as any).function_call) : null,
@@ -165,6 +167,7 @@ export const buildMessage = async (
             // ignore
           }
         }
+        if(!row.content) row.content = '';
         return row;
       }));
       
@@ -211,7 +214,7 @@ export const buildMessage = async (
         newMessage.id || randomUUID(),
         userId,
         newMessage.role,
-        newMessage.content ? (typeof newMessage.content === "string" ? newMessage.content : JSON.stringify(newMessage.content)) : null,
+        newMessage.content ? (typeof newMessage.content === "string" ? newMessage.content : JSON.stringify(newMessage.content)) : '',
         (newMessage as any).tool_calls ? JSON.stringify((newMessage as any).tool_calls) : null,
         (newMessage as any).tool_call_id || null,
         (newMessage as any).function_call ? JSON.stringify((newMessage as any).function_call) : null,
